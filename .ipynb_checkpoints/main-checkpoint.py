@@ -17,12 +17,6 @@ import wandb
 import torch.nn as nn
 
 
-def compute_class_weights_sqrt_inv(train_labels, num_classes, device="cuda"):
-    counts = np.bincount(train_labels, minlength=num_classes).astype(np.float32)
-    weights = 1.0 / (np.sqrt(counts) + 1e-6)
-    weights = weights / weights.mean()
-    return torch.tensor(weights, dtype=torch.float32, device=device)
-
 def get_args():
     """
     get command line args
@@ -33,7 +27,7 @@ def get_args():
     parser.add_argument('--n_workers', type=int, default=24)
     parser.add_argument('--batch_size', type=int, default=32)
     parser.add_argument('--seed', type=int, default=4690)
-    parser.add_argument('--lr', type=float, default=0.0003)
+    parser.add_argument('--lr', type=float, default=0.00005)
     parser.add_argument('--image_resize_dim', type=int, default=256)
     parser.add_argument('--image_crop_dim', type=int, default=224)
     parser.add_argument('--do_grad_accum', type=bool, default=True)
@@ -116,9 +110,6 @@ def main():
             replacement=True                  # important for balancing
         )
 
-        
-        class_weights = compute_class_weights_sqrt_inv(train_labels_split, num_classes, device="cuda")
-
         test_df = pd.read_csv(TEST_CSV_DIR)
         test_fpaths = np.array([NIH_DATASET_ROOT_DIR + x for x in test_df['id'].values])
         test_labels = np.stack([np.array(test_df[x]) for x in NIH_CXR_SINGLE_LABEL_NAMES], axis=1).argmax(1) 
@@ -184,8 +175,7 @@ def main():
                 'use_wandb_log': args.use_wandb_log,
                 ## problem specific parameters ##
                 'use_focal_loss': args.use_focal_loss,
-                'focal_loss_alpha': class_weights,
-                # 'focal_loss_alpha': args.focal_loss_alpha,
+                'focal_loss_alpha': args.focal_loss_alpha,
                 'focal_loss_gamma': args.focal_loss_gamma,
                 'num_classes': args.num_classes, # NO FUNCTION in Trainer
                 'method': configs['method'],

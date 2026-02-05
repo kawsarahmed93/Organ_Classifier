@@ -104,15 +104,34 @@ class ModelTrainer():
         self.interval_validation_step = interval_validation_step
         
         self.scaler = torch.cuda.amp.GradScaler()
-        self.optimizer = torch.optim.Adam(params=self.model.parameters(), lr=self.lr, weight_decay=1e-4)
-        self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=len(self.trainLoader)//2, eta_min=1e-5)
+        # self.optimizer = torch.optim.Adam(params=self.model.parameters(), lr=self.lr, weight_decay=1e-4)
+        
+        # Optimizer: AdamW with weight decay
+        self.optimizer = torch.optim.AdamW(
+            params=self.model.parameters(),
+            lr=self.lr,
+            weight_decay=1e-4
+        )
+        
+        # Scheduler: ReduceLROnPlateau
+        self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            self.optimizer,
+            mode='min',          # or 'max' depending on your validation metric
+            factor=0.1,          # reduces LR by factor of 10
+            patience=3,          # waits 3 epochs without improvement
+            min_lr=1e-7,          # optional floor
+            verbose=True
+        )
+
+
+        # self.scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=len(self.trainLoader)//2, eta_min=1e-5)
         
         self.all_logs = {}
         
         self.num_classes = num_classes
         if use_focal_loss:
             # self.criterion_cls = FocalLoss(gamma=focal_loss_gamma, alpha=focal_loss_alpha)
-            self.criterion_cls = SoftmaxFocalLoss(gamma=focal_loss_gamma, weight=focal_loss_alpha)
+            self.criterion_cls = SoftmaxFocalLoss(gamma=focal_loss_gamma, alpha=focal_loss_alpha)
         else:
             self.criterion_cls = nn.CrossEntropyLoss()
         
@@ -149,84 +168,85 @@ class ModelTrainer():
             
         return checkpoint_dict
     
+    
     def perform_validation(self, use_progbar: bool=True, best_metric_verbose: bool=True):
         self.model.eval()
         if self.use_ema:
             self.model_ema.eval()
         torch.set_grad_enabled(False)
+    
         val_info_box = MetricStoreBox(self.metrics)
         extra_metric_box = ExtraMetricMeter()
-          
+    
         if use_progbar:
-            if self.fold == None:
+            if self.fold is None:
                 progbar_description = f'(val) Epoch {self.current_epoch_no}/{self.epochsTorun}'
             else:
                 progbar_description = f'(val) Fold {self.fold} Epoch {self.current_epoch_no}/{self.epochsTorun}'
             val_progbar = ProgressBar(len(self.valLoader), progbar_description)
-            
-        for itera_no, data in enumerate(self.valLoader):                        
-            images = data['image'].to(DEVICE) 
+    
+        for itera_no, data in enumerate(self.valLoader):
+            images = data['image'].to(DEVICE)
             targets = data['target'].to(DEVICE)
-            
-            with torch.no_grad() and torch.cuda.amp.autocast():
+    
+            # ✅ FIX: correct context manager usage
+            with torch.no_grad(), torch.cuda.amp.autocast():
                 if self.use_ema:
                     out = self.model_ema.module(images)
                 else:
-                    out = self.model(images)                                
+                    out = self.model(images)
+    
                 batch_loss = self.criterion_cls(out['logits'], targets)
-                        
-            # update extra metric      
+    
+            # update extra metric
             y_pred = out['logits'].detach().cpu().clone().float().softmax(1).argmax(1).numpy()
             y_true = targets.detach().cpu().data.numpy()
             extra_metric_box.update(y_pred, y_true)
-            
+    
             # update progress bar, info box
-            val_info_box.update({'loss':[batch_loss.detach().item(), targets.shape[0]]})
-            logs_to_display=val_info_box.get_value()
+            val_info_box.update({'loss': [batch_loss.detach().item(), targets.shape[0]]})
+            logs_to_display = val_info_box.get_value()
             logs_to_display = {f'val_{key}': logs_to_display[key] for key in logs_to_display.keys()}
             if use_progbar:
                 val_progbar.update(1, logs_to_display)
-        
-        # calculate all metrics and close progbar
-        logs_to_display=val_info_box.get_value()
+    
+        # calculate all metrics
+        logs_to_display = val_info_box.get_value()
         f1 = extra_metric_box.feedback()
         logs_to_display.update({'f1': f1})
         logs_to_display = {f'val_{key}': logs_to_display[key] for key in logs_to_display.keys()}
-        
-        val_logs = logs_to_display
-        self.best_loss, is_best_loss = check_if_best_value(val_logs['val_loss'], self.best_loss, 'loss', 'min', best_metric_verbose)
-        self.best_f1, is_best_f1 = check_if_best_value(val_logs['val_f1'], self.best_f1, 'f1', 'max', best_metric_verbose)
-        
-        checkpoint_dict = self.get_checkpoint(val_logs)                              
+    
+        val_logs = logs_to_display  # contains current val_loss and val_f1
+    
+        # ✅ BEST tracking
+        self.best_loss, is_best_loss = check_if_best_value(
+            val_logs['val_loss'], self.best_loss, 'loss', 'min', best_metric_verbose
+        )
+        self.best_f1, is_best_f1 = check_if_best_value(
+            val_logs['val_f1'], self.best_f1, 'f1', 'max', best_metric_verbose
+        )
+    
+        checkpoint_dict = self.get_checkpoint(val_logs)
         if is_best_f1:
-            if self.fold == None:
-                torch.save(checkpoint_dict, self.checkpoint_saving_path+'checkpoint_best_f1.pth')
-            else:                                
-                torch.save(checkpoint_dict, self.checkpoint_saving_path+'checkpoint_best_f1_fold{}.pth'.format(self.fold))       
-        
-        # min_auc_index = np.argmin(self.best_aucs_multiple)
-        # min_auc = self.best_aucs_multiple[min_auc_index]
-        # if auc > min_auc:
-        #     self.best_aucs_multiple[min_auc_index] = auc
-        #     torch.save(checkpoint_dict, self.checkpoint_saving_path+'checkpoint_fold{}_{}.pth'.format(self.fold, min_auc_index))
-        #     # print(self.best_aucs_multiple)
-        #     print_str = '|'
-        #     for jj in self.best_aucs_multiple: 
-        #         print_str = print_str + str(jj) + '|'
-        #     print('\033[32;1m' + print_str + '\033[0m')
-        
+            if self.fold is None:
+                torch.save(checkpoint_dict, self.checkpoint_saving_path + 'checkpoint_best_f1.pth')
+            else:
+                torch.save(checkpoint_dict, self.checkpoint_saving_path + f'checkpoint_best_f1_fold{self.fold}.pth')
         del checkpoint_dict
-        
-        best_results_logs = {'best_val_f1': self.best_f1, 'best_val_loss':self.best_loss}
+    
+        best_results_logs = {'best_val_f1': self.best_f1, 'best_val_loss': self.best_loss}
         logs_to_display.update(best_results_logs)
+    
         if use_progbar:
             val_progbar.update(logs_to_display=logs_to_display)
             val_progbar.close()
-        
+    
         val_logs = logs_to_display
         if self.use_wandb_log:
             wandb.log(val_logs)
+    
         return val_logs
+
         
     def train_one_epoch(self):
         train_info_box = MetricStoreBox(self.metrics)
@@ -252,6 +272,7 @@ class ModelTrainer():
             with torch.cuda.amp.autocast():
                 out = self.model(images)
                 batch_loss = self.criterion_cls(out['logits'], targets)
+                batch_loss = batch_loss / self.grad_accum_step
                     
             self.scaler.scale(batch_loss).backward()
     
@@ -262,7 +283,7 @@ class ModelTrainer():
                 if self.use_ema:
                     self.model_ema.update(self.model)
              
-            self.scheduler.step()
+            # self.scheduler.step(self.best_loss)
             
             # update extra metric
             y_pred = out['logits'].detach().cpu().clone().float().softmax(1).argmax(1).numpy()
@@ -311,6 +332,8 @@ class ModelTrainer():
             self.current_epoch_no = epoch+1
             train_logs = self.train_one_epoch()
             val_logs = self.perform_validation()
+
+            self.scheduler.step(val_logs["val_loss"])
             
             self.all_logs.update({
                 f'Epoch_{self.current_epoch_no}_train_logs': train_logs,

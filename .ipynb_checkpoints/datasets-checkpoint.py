@@ -8,48 +8,52 @@ from albumentations.pytorch.transforms import ToTensorV2
 from configs import NIH_DATASET_ROOT_DIR, NIH_CXR_SINGLE_LABEL_NAMES
 import pandas as pd
 
-def get_train_transforms(resize, crop):
-    return A.Compose([
-            A.Resize(width=resize, height=resize, p=1.0),
-            A.HorizontalFlip(p=0.5),
-            A.VerticalFlip(p=0.5),
-            A.RandomBrightnessContrast(p=0.075),
-            A.Rotate(limit=(-5,5),p=0.05),
-            A.RandomCrop(width=crop, height=crop, p=1.0),
-            A.Normalize(
-                mean=[0.485, 0.456, 0.406],
-                std=[0.229, 0.224, 0.225],
-                max_pixel_value=255,
-                p=1.0,
-            ),
-            ToTensorV2(p=1.0),
-        ], p=1.0)
+import albumentations as A
+from albumentations.pytorch import ToTensorV2
 
-def get_valid_transforms(resize, crop):
+def get_train_transforms(resize=256, crop=224):
     return A.Compose([
-            A.Resize(width=resize, height=resize, p=1.0),
-            A.CenterCrop(width=crop, height=crop, p=1.0),
-            A.Normalize(
-                mean=[0.485, 0.456, 0.406],
-                std=[0.229, 0.224, 0.225],
-                max_pixel_value=255,
-                p=1.0,
-            ),
-            ToTensorV2(p=1.0),
-        ], p=1.0)
+        # A.Resize(height=resize, width=resize, p=1.0),
+        
+        A.RandomResizedCrop(
+                    size=(crop, crop),
+                    scale=(0.8, 1.0),
+                    ratio=(0.9, 1.1),
+                    p=1.0,
+                ),
 
-def get_test_transforms(resize, crop):
+
+        A.HorizontalFlip(p=0.5),
+        A.ColorJitter(
+            brightness=0.1,
+            contrast=0.1,
+            saturation=0.0,
+            hue=0.0,
+            p=0.5
+        ),
+
+        A.Normalize(
+            mean=[0.485, 0.456, 0.406],
+            std=[0.229, 0.224, 0.225],
+            max_pixel_value=255.0,
+            p=1.0
+        ),
+        ToTensorV2(p=1.0),
+    ], p=1.0)
+
+def get_valid_transforms(resize=256, crop=224):
     return A.Compose([
-            A.Resize(width=resize, height=resize, p=1.0),
-            A.CenterCrop(width=crop, height=crop, p=1.0),
-            A.Normalize(
-                mean=[0.485, 0.456, 0.406],
-                std=[0.229, 0.224, 0.225],
-                max_pixel_value=255,
-                p=1.0,
-            ),
-            ToTensorV2(p=1.0),
-        ], p=1.0)
+        A.Resize(height=resize, width=resize, p=1.0),
+        A.CenterCrop(height=crop, width=crop, p=1.0),
+        A.Normalize(mean=[0.485,0.456,0.406],
+                    std=[0.229,0.224,0.225],
+                    max_pixel_value=255.0, p=1.0),
+        ToTensorV2(p=1.0),
+    ], p=1.0)
+
+def get_test_transforms(resize=256, crop=224):
+    return get_valid_transforms(resize, crop)
+
 
 class NIH_IMG_LEVEL_DS(Dataset):
     def __init__(self, xray_fpaths, labels, transform):
