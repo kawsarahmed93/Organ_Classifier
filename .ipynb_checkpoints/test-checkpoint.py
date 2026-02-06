@@ -12,7 +12,7 @@ from sklearn.metrics import roc_auc_score, f1_score, accuracy_score, balanced_ac
 import pandas as pd
 
 from datasets import NIH_IMG_LEVEL_DS, get_valid_transforms, collate_fn_img_level_ds
-from models import DenseNet121
+from models import DenseNet121, ConvNeXt_Large, ConvNeXt_Small
 from configs import all_configs, DEVICE, NIH_DATASET_ROOT_DIR, TEST_CSV_DIR, NIH_CXR_SINGLE_LABEL_NAMES
 from trainer_callbacks import set_random_state
 
@@ -72,7 +72,9 @@ def main():
     all_preds = []
         
     print('Loading Baseline model!')
-    model = DenseNet121(args.num_classes)
+    model = ConvNeXt_Large(args.num_classes)
+    # model = ConvNeXt_Small(args.num_classes)
+    # model = DenseNet121(args.num_classes)
         
     checkpoint = torch.load(weight_saving_path+'/checkpoint_best_f1.pth')
     print('loss score: {:.4f}'.format(checkpoint['val_loss']))

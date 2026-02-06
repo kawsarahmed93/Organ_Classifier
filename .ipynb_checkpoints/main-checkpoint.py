@@ -8,7 +8,7 @@ from trainer import ModelTrainer
 
 import pandas as pd
 from datasets import NIH_IMG_LEVEL_DS, get_train_transforms, get_valid_transforms, get_test_transforms, collate_fn_img_level_ds
-from models import DenseNet121
+from models import DenseNet121, ConvNeXt_Small, ConvNeXt_Large
 from configs import all_configs, NIH_DATASET_ROOT_DIR, NIH_CXR_SINGLE_LABEL_NAMES, TRAIN_CSV_DIR, TEST_CSV_DIR
 from trainer_callbacks import set_random_state, AverageMeter, PrintMeter
 from sklearn.model_selection import train_test_split
@@ -153,7 +153,9 @@ def main():
         
         
         print('Loading Baseline model!')
-        model = DenseNet121(args.num_classes)
+        # model = DenseNet121(args.num_classes)
+        model = ConvNeXt_Large(args.num_classes)
+        # model = ConvNeXt_Small(args.num_classes)
             
         trainer_args = {
                 'model': model,

@@ -32,7 +32,7 @@ TEST_CSV_DIR = './LongTailCXR/nih-cxr-lt_single-label_test.csv'
 
 all_configs = {
     'base_model':{
-        'weight_saving_path': '../weights/base_model_run3/',
+        'weight_saving_path': '../weights/ConvNeXt_l_run1/',
         'epochs': 100,
         'checkpoint_path': None,
         'method': 'base', 
