@@ -63,7 +63,46 @@ class DenseNet121(nn.Module):
             'logits': logits,
             }
 
+class ConvNeXt_Small(nn.Module):
+    def __init__(self, num_classes: int=20):
+        super().__init__()
+        model = torchvision.models.convnext_small(weights=torchvision.models.ConvNeXt_Small_Weights.IMAGENET1K_V1)                                    
+        self.layer1 = nn.Sequential(
+                            model.features[0],            
+                            model.features[1],
+                            )
+        self.layer2 = nn.Sequential(
+                            model.features[2],            
+                            model.features[3],
+                            )
+        self.layer3 = nn.Sequential(
+                            model.features[4],            
+                            model.features[5],
+                            )
+        self.layer4 = nn.Sequential(
+                            model.features[6],            
+                            model.features[7],
+                            )
+
+        self.classifier = model.classifier 
+        self.classifier[2] = nn.Linear(768, num_classes)
+        self.classifier[2].weight.data.normal_(0, 0.01)
+        self.classifier[2].bias.data.zero_()
+
+    @autocast()
+    def forward(self, x:torch.Tensor):
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        xg = self.layer4(x)
+        xg_pool = F.adaptive_avg_pool2d(xg, (1,1))
+        logits = self.classifier(xg_pool)
+        
+        return {
+            'logits': logits,
+            }
+    
 if __name__ == '__main__':
-    imgs = torch.zeros((2,3,224,224)).to("cuda:0")  
-    model = DenseNet121().to("cuda:0")
+    imgs = torch.zeros((2,3,224,224)) #.to("cuda:0")  
+    model = ConvNeXt_Small() #.to("cuda:0")
     out = model(imgs)
